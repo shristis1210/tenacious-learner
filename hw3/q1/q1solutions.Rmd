@@ -1,0 +1,118 @@
+---
+title: "Predictive model building"
+author: "Bao Doquang, Dhwanit Agarwal, Akksay Singh and Shristi Singh"
+date: "April 19, 2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+Part 1. 
+
+This analysis attempts to find the important factors which determine the rent amount per square foot of a property. We are interested in estimating the percentage change in rent per square foot from 18 different factors individually as well as collectively for the entire model. 
+
+We got a sample of 7894 commercial rental properties and 18 independent variables which can affect percentage change in rental income per square foot. We selected log-lin model because this model gives percentage change in dependent variable which in our model is rent per square foot. Since it contains 18 independent variables, the model is very complex and for that we need a large sample size to avoid overfitting. We have 7894 observations containing 685 properties that have been awarded either LEED or EnergyStar certification, we conclude that our sample size is large enough to give generalized predictions.  We used dummy variables for qualitative factors which are: renovated, class_a, class_b, green_rating, net and amenities. These qualitative factors increase the rental income and they are often significant in explaining the rental income variation. In actual model we collapsed LEED and EnergyStar in a single variable named "green_rating".
+
+We fit the OLS linear regression model that includes these 18 variables as predictors of rental income. Our results are on page 8  below. Overall, the model is a good fit as Adjusted R^2 = 0.68 which indicates that our model explains 68% of the variation in rental income. The F Statistics =925.2 on 18 and 7801 degrees of freedom, is highly significant which means that at least one the coefficients in the model is significantly not equal to zero i.e. ??i =!0. The third point is to look at individual 't' scores for each coefficient or ??i. We find that only three variables: stories, renovated, and gas cost are not significant factors in explaining the movement in rental income while the remaining 15 variables are significant. We can conclude that these variables have ??i s = 0 or they do not impact rental income. We can drop these variables in future research. Most of the remaining variables are individually significant at 1 percent or less which is great.
+
+The coefficients in a log-lin model tell how much percentage change will happen in rental income on an average when they are multiplied by 100 when the independent variable increases by 1 unit while keeping rest of the variables constant.
+
+Part 2.
+
+In our model, the average increase in rental income is 2.98% when the greenrating increases by 1 unit while all other things do not change. This variable is significant at 0.01 level.
+
+From our analysis, we conclude that our log-lin OLS model does a good job in explaining the relationship between rental income and the other 18 factors determining the rental income. Our model's sign's of coefficients are in the expected directions such as increase in bad factors like age and electricity costs would be negatively related to rental income while increase in good factors like green rating, size, employment growth, amenities  would positively increase the rental income. 
+
+```{r }
+library(rsample)  # data splitting 
+library(glmnet)   # implementing regularized regression approaches
+library(dplyr)    # basic data manipulation procedures
+library(ggplot2)  # plotting
+library(DAAG)
+library(MASS)
+# import data and examine it
+
+greenbuildings <- read.csv("greenbuildings.csv")
+#View(greenbuildings)
+ok <- complete.cases(greenbuildings)
+greenbuildings <- greenbuildings[ok,]
+
+
+# note that shares is hugely skewed
+# probably want a log transformation here
+hist(greenbuildings$Rent)
+summary(greenbuildings$Rent)
+
+
+# much nicer :-)
+hist(log(greenbuildings$Rent))
+
+#### lasso (glmnet does L1-L2, gamlr does L0-L1) 
+# I want to fit a lasso regression and do cross validation of K=10 folds 
+# inorder to automate finiding independent variables and training & testing my data multiple times.
+# cv.gamlr command in the gamlr does it for me.
+# download gamlr library
+library(gamlr) 
+
+# i create a matrix of all my independent varaibles except for url from online_news data to make it easily readable for gamlr commands.
+# the sparse.model.matrix function.
+x = sparse.model.matrix( log(Rent) ~  . - CS_PropertyID - LEED -Energystar  , data=greenbuildings, standardize=TRUE)[, -1] # do -1 to drop intercep
+
+y = log(greenbuildings$Rent) # pull out `y' too just for convenience and do log(shares)- dependent variable
+
+
+
+# Here I fit my lasso regression to the data and do my cross validation of k=10 n folds
+# the cv.gamlr command does both things at once.
+#(verb just prints progress)
+cvl = cv.gamlr(x, y, nfold=10, verb=TRUE)
+
+# plot the out-of-sample deviance as a function of log lambda
+plot(cvl, bty="n")
+
+min(cvl$cvm)       # minimum MSE
+## [1] 0.06615445
+cvl$lambda.min     # lambda for this min MSE
+## [1] 0.003585894
+
+
+cvl$cvm[cvl$lambda == cvl$lambda.1se]  # 1 st.error of min MSE
+## [1] 0.06908108
+cvl$lambda.1se  # lambda for this MSE
+## [1] 0.01516562
+
+#fitted coefficients at minimum MSE
+coef(cvl, select="min")
+
+
+
+# Apply CV Ridge regression to data
+cvr <- cv.glmnet(
+  x ,
+  y ,
+  alpha = 0
+)
+
+# plot MSE as a function of log(lambda)
+plot(cvr)
+min(cvr$cvm)       # minimum MSE
+## [1] 0.06679016  #value observed
+cvr$lambda.min     # lambda for this min MSE
+## [1] 0.03585894
+
+cvr$cvm[cvr$lambda == cvr$lambda.1se]  # 1 st.error of min MSE
+## [1] 0.06908108
+cvr$lambda.1se  # lambda for this MSE
+## [1] 0.0828388
+
+#fitted coefficients at minimum MSE
+coef(cvr, select="min")
+
+#Apply OLS to data
+linear_fit = lm(log(Rent) ~ . - CS_PropertyID - LEED -Energystar , data = greenbuildings) #no scaling  in linear model, need to include intercept term 
+summary(linear_fit)
+
+cvlm = cv.lm(data = greenbuildings, linear_fit, m=10, plotit = TRUE, printit = FALSE)
+
+print(linear_fit)
+#MSE for OLS = 0.0659
+```
